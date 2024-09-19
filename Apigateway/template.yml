@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  # S3 Bucket
+  MyS3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: "photosjoseneto123-unique-id001100110"
+  
+  # DynamoDB Table
+  MyDynamoDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: "photosjoseneto"
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  # Role for API Gateway to access S3 and DynamoDB
+  ApiGatewayRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "apigateway.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "ApiGatewayPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource: !Sub "arn:aws:s3:::photosjoseneto123-unique-id001100110/*"
+              - Effect: "Allow"
+                Action:
+                  - "dynamodb:Scan"
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/photosjoseneto"
+
+  # API Gateway (Regional)
+  ApiGateway:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: "PhotosApi"
+      EndpointConfiguration:
+        Types: 
+          - "REGIONAL"  # Especifica que o API Gateway é Regional
+
+  # S3 Resource in API Gateway
+  ApiGatewayS3Resource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "bucket"
+      RestApiId: !Ref ApiGateway
+
+  # Item Resource under S3 Resource in API Gateway
+  ApiGatewayS3ItemResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !Ref ApiGatewayS3Resource
+      PathPart: "{item}"
+      RestApiId: !Ref ApiGateway
+
+  # DynamoDB Resource in API Gateway
+  ApiGatewayDynamoDBResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "consulta"
+      RestApiId: !Ref ApiGateway
+
+  # API Gateway Method for S3 (POST) on item
+  ApiGatewayMethodS3Post:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "POST"
+      ResourceId: !Ref ApiGatewayS3ItemResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: "AWS"
+        IntegrationHttpMethod: "PUT"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:s3:path/photosjoseneto123-unique-id001100110/{item}"
+        Credentials: !GetAtt ApiGatewayRole.Arn
+        RequestParameters:
+          integration.request.path.item: method.request.path.item
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: '{"message": "File uploaded successfully."}'
+      RequestParameters:
+        method.request.path.item: true
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: "Empty"
+
+  # API Gateway Method for S3 (DELETE) on item
+  ApiGatewayMethodS3Delete:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "DELETE"
+      ResourceId: !Ref ApiGatewayS3ItemResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: "AWS"
+        IntegrationHttpMethod: "DELETE"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:s3:path/photosjoseneto123-unique-id001100110/{item}"
+        Credentials: !GetAtt ApiGatewayRole.Arn
+        RequestParameters:
+          integration.request.path.item: method.request.path.item
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: '{"message": "File deleted successfully."}'
+      RequestParameters:
+        method.request.path.item: true
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: "Empty"
+
+  # API Gateway REST API
+  ApiGatewayRestApi:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: "PhotoApi"
+
+  # Resource for 'photo'
+  PhotoResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt 'ApiGatewayRestApi.RootResourceId'
+      PathPart: "photo"
+      RestApiId: !Ref 'ApiGatewayRestApi'
+
+  # Method for fetching by ID (Scan)
+  photoById:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      ResourceId: !Ref 'PhotoResource'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS"
+        Uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:dynamodb:action/Scan
+        Credentials: !GetAtt 'ApiGatewayRole.Arn'
+        RequestTemplates:
+          application/json: |
+            {
+              "TableName": "photosjoseneto",
+              "FilterExpression": "id = :v1",
+              "ExpressionAttributeValues": {
+                ":v1" : {"S": "$input.params('id')"}
+              }
+            }
+      MethodResponses:
+        - StatusCode: 200
+
+  # Method for fetching by 'assunto' (Scan)
+  photoByAssunto:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      ResourceId: !Ref 'PhotoResource'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS"
+        Uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:dynamodb:action/Scan
+        Credentials: !GetAtt 'ApiGatewayRole.Arn'
+        RequestTemplates:
+          application/json: |
+            {
+              "TableName": "photosjoseneto",
+              "ProjectionExpression": "id, descricao, colecao",
+              "FilterExpression": "assunto = :v1",
+              "ExpressionAttributeValues": {
+                ":v1" : {"S": "$input.params('nome')"}
+              }
+            }
+      MethodResponses:
+        - StatusCode: 200
+
+  # Method for fetching by 'assunto' and 'coleção' (Scan)
+  photoByAssuntoAndColecao:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      ResourceId: !Ref 'PhotoResource'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS"
+        Uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:dynamodb:action/Scan
+        Credentials: !GetAtt 'ApiGatewayRole.Arn'
+        RequestTemplates:
+          application/json: |
+            {
+              "TableName": "photosjoseneto",
+              "ProjectionExpression": "id, descricao, colecao",
+              "FilterExpression": "assunto = :v1 AND colecao = :v2",
+              "ExpressionAttributeValues": {
+                ":v1" : {"S": "$input.params('assunto')"},
+                ":v2" : {"S": "$input.params('colecao')"}
+              }
+            }
+      MethodResponses:
+        - StatusCode: 200
+
+Outputs:
+  S3BucketName:
+    Description: "The name of the S3 bucket created"
+    Value: !Ref MyS3Bucket
+
+  DynamoDBTableName:
+    Description: "The name of the DynamoDB table created"
+    Value: !Ref MyDynamoDBTable
+
+  ApiEndpoint:
+    Description: "The endpoint of the API Gateway"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/"
